@@ -2,7 +2,7 @@ FROM node:22-alpine AS build
 WORKDIR /app
 ENV CI=true \
     COREPACK_ENABLE=0 \
-    NODE_OPTIONS=--max-old-space-size=512 \
+    NODE_OPTIONS=--max-old-space-size=1536 \
     npm_config_fund=false \
     npm_config_audit=false
 RUN npm install -g pnpm@11.21.0 \
@@ -11,7 +11,7 @@ RUN npm install -g pnpm@11.21.0 \
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml nest-cli.json tsconfig.json tsconfig.build.json ./
 COPY src ./src
 RUN pnpm install --frozen-lockfile
-RUN pnpm build
+RUN pnpm exec tsc -p tsconfig.build.json
 RUN pnpm prune --prod \
   && pnpm store prune \
   && rm -rf /root/.local /root/.npm /tmp/*

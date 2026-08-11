@@ -16,10 +16,12 @@ services:
     command: ["--dev", "--bind", "0.0.0.0"]
     ports: ["7880:7880", "7881:7881", "7882:7882/udp"]
   api:
-    build: .
+    image: luvio-api:latest
     restart: unless-stopped
     env_file: .env
-    ports: ["4000:4000"]
+    environment:
+      PORT: "4000"
+    ports: ["4002:4000"]
     depends_on: [mongodb, redis]
 
 volumes:
