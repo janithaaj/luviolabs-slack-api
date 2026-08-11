@@ -3,3 +3,11 @@ dist
 coverage
 .env
 .git
+.github
+*.md
+test
+**/*.spec.ts
+**/*.e2e-spec.ts
+Dockerfile
+compose.yaml
+.dockerignore

@@ -103,7 +103,7 @@ export class FilesService {
     // Clients PUT binary to the backend upload endpoint (local signed-upload stand-in).
     const apiBase =
       process.env.PUBLIC_API_URL?.replace(/\/$/, '') ||
-      `http://127.0.0.1:${this.config.get('PORT') ?? 4100}`;
+      `http://127.0.0.1:${this.config.get('PORT') ?? 4000}`;
     return {
       fileId: file.id as string,
       uploadUrl: `${apiBase}/workspaces/${workspaceId}/files/${file.id}/upload`,
