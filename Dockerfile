@@ -1,23 +1,26 @@
-FROM node:22-alpine AS dependencies
+FROM node:22-alpine AS build
 WORKDIR /app
-RUN corepack enable
-COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+ENV CI=true \
+    COREPACK_ENABLE=0 \
+    npm_config_fund=false \
+    npm_config_audit=false
+RUN npm install -g pnpm@11.21.0 \
+  && npm cache clean --force \
+  && rm -rf /root/.npm /tmp/*
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml nest-cli.json tsconfig.json tsconfig.build.json ./
+COPY src ./src
 RUN pnpm install --frozen-lockfile \
+  && pnpm build \
+  && pnpm prune --prod \
   && pnpm store prune \
-  && rm -rf /root/.cache /tmp/*
+  && rm -rf /root/.local /root/.npm /tmp/*
 
-FROM dependencies AS build
-COPY . .
-RUN pnpm build \
-  && rm -rf /root/.cache /tmp/*
-
-FROM node:22-alpine AS runtime
+FROM node:22-alpine
 WORKDIR /app
-ENV NODE_OPTIONS="--max-old-space-size=4096"
 ENV NODE_ENV=production
-COPY --from=dependencies /app/node_modules ./node_modules
+COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
-COPY package.json ./
+COPY --from=build /app/package.json ./
 USER node
-EXPOSE 4002
+EXPOSE 4000
 CMD ["node", "dist/main.js"]
