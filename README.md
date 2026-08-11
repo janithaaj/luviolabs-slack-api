@@ -17,6 +17,9 @@ Production-oriented NestJS modular monolith for the Luvio realtime collaboration
 - Generic conversations supporting channel, DM, group DM, and meeting types
 - Cursor-paginated, idempotent, durable messages
 - Authenticated Socket.IO conversation rooms and `message.created` broadcasts
+- Instant channel/DM Huddles with LiveKit-compatible short-lived room tokens
+- Redis-backed Huddle participant state, reaction limits, and one-call-per-user enforcement
+- BullMQ last-participant grace cleanup and MongoDB Huddle history
 - Liveness/readiness endpoints
 - Docker development services for MongoDB, Redis, LiveKit, and the API
 
@@ -53,6 +56,15 @@ POST   /api/v1/workspaces/:workspaceId/channels/:channelId/join
 
 POST   /api/v1/workspaces/:workspaceId/conversations/:conversationId/messages
 GET    /api/v1/workspaces/:workspaceId/conversations/:conversationId/messages
+
+POST   /api/v1/huddles
+GET    /api/v1/conversations/:conversationId/huddle
+POST   /api/v1/huddles/:huddleId/join
+POST   /api/v1/huddles/:huddleId/leave
+POST   /api/v1/huddles/:huddleId/end
+GET    /api/v1/huddles/:huddleId/participants
+POST   /api/v1/huddles/:huddleId/invite
+GET    /api/v1/conversations/:conversationId/huddles
 ```
 
 Protected REST routes require `Authorization: Bearer <accessToken>`.
@@ -72,6 +84,10 @@ Client commands:
 
 - `conversation.join` — authorizes access before joining a private room
 - `message.send` — persists first, then emits `message.created`
+- `huddle.room.join` / `huddle.room.leave` — authorize and manage the private Huddle room
+- `huddle.participant_state` — publishes sanitized mic, camera, screen, and hand state
+- `huddle.reaction` — publishes an allowlisted, rate-limited reaction
+- `huddle.heartbeat` — refreshes transient participant state without generating join/leave spam
 
 Important commands return Socket.IO acknowledgement payloads using the same `{ data, meta }` shape as REST.
 

@@ -3,6 +3,7 @@ import { JwtService } from '@nestjs/jwt';
 import {
   ConnectedSocket,
   MessageBody,
+  OnGatewayInit,
   OnGatewayConnection,
   OnGatewayDisconnect,
   SubscribeMessage,
@@ -16,11 +17,24 @@ import { MessagesService } from '../messages/messages.service';
 import { RedisService } from '../redis/redis.service';
 import { UsersService } from '../users/users.service';
 import { WorkspacesService } from '../workspaces/workspaces.service';
+import { HuddlesService } from '../huddles/huddles.service';
+import { HuddlesRealtimeService } from '../huddles/huddles-realtime.service';
+import { ProjectsService } from '../projects/projects.service';
+import { ProjectsRealtimeService } from '../projects/projects-realtime.service';
+import {
+  HuddleParticipantStateDto,
+  HuddleReactionDto,
+  HuddleRoomDto,
+} from '../huddles/dto/huddles.dto';
 import {
   JoinConversationDto,
+  JoinProjectDto,
   RealtimeMessageDto,
   TypingIndicatorDto,
   WorkspacePresenceDto,
+  RealtimeDeleteMessageDto,
+  RealtimeEditMessageDto,
+  RealtimeReactionDto,
 } from './dto/realtime-message.dto';
 
 @UsePipes(
@@ -36,7 +50,7 @@ import {
   maxHttpBufferSize: 1_000_000,
 })
 export class RealtimeGateway
-  implements OnGatewayConnection, OnGatewayDisconnect
+  implements OnGatewayInit, OnGatewayConnection, OnGatewayDisconnect
 {
   @WebSocketServer() private readonly server!: Server;
   private readonly logger = new Logger(RealtimeGateway.name);
@@ -47,7 +61,16 @@ export class RealtimeGateway
     private readonly redis: RedisService,
     private readonly users: UsersService,
     private readonly workspaces: WorkspacesService,
+    private readonly huddles: HuddlesService,
+    private readonly huddleRealtime: HuddlesRealtimeService,
+    private readonly projects: ProjectsService,
+    private readonly projectsRealtime: ProjectsRealtimeService,
   ) {}
+
+  afterInit(server: Server) {
+    this.huddleRealtime.bind(server);
+    this.projectsRealtime.bind(server);
+  }
 
   async handleConnection(socket: Socket) {
     try {
@@ -163,6 +186,30 @@ export class RealtimeGateway
     return { data: { left: true }, meta: {} };
   }
 
+  @SubscribeMessage('project.join')
+  async joinProject(
+    @ConnectedSocket() socket: Socket,
+    @MessageBody() body: JoinProjectDto,
+  ) {
+    const principal = this.requirePrincipal(socket);
+    await this.projects.requireProjectAccess(
+      principal.userId,
+      body.projectId,
+      'project.view',
+    );
+    await socket.join(`project:${body.projectId}`);
+    return { data: { joined: true }, meta: {} };
+  }
+
+  @SubscribeMessage('project.leave')
+  async leaveProject(
+    @ConnectedSocket() socket: Socket,
+    @MessageBody() body: JoinProjectDto,
+  ) {
+    await socket.leave(`project:${body.projectId}`);
+    return { data: { left: true }, meta: {} };
+  }
+
   @SubscribeMessage('message.send')
   async sendMessage(
     @ConnectedSocket() socket: Socket,
@@ -175,23 +222,102 @@ export class RealtimeGateway
       body.conversationId,
       body,
     );
+    await this.broadcastMessageEvent(
+      body.workspaceId,
+      body.conversationId,
+      'message.created',
+      message,
+    );
+    return { data: message, meta: {} };
+  }
+
+  @SubscribeMessage('message.edit')
+  async editMessage(
+    @ConnectedSocket() socket: Socket,
+    @MessageBody() body: RealtimeEditMessageDto,
+  ) {
+    const principal = this.requirePrincipal(socket);
+    const message = await this.messages.update(
+      principal.userId,
+      body.workspaceId,
+      body.conversationId,
+      body.messageId,
+      body,
+    );
+    await this.broadcastMessageEvent(
+      body.workspaceId,
+      body.conversationId,
+      'message.updated',
+      message,
+    );
+    return { data: message, meta: {} };
+  }
+
+  @SubscribeMessage('message.delete')
+  async deleteMessage(
+    @ConnectedSocket() socket: Socket,
+    @MessageBody() body: RealtimeDeleteMessageDto,
+  ) {
+    const principal = this.requirePrincipal(socket);
+    const message = await this.messages.softDelete(
+      principal.userId,
+      body.workspaceId,
+      body.conversationId,
+      body.messageId,
+    );
+    await this.broadcastMessageEvent(
+      body.workspaceId,
+      body.conversationId,
+      'message.deleted',
+      message,
+    );
+    return { data: message, meta: {} };
+  }
+
+  @SubscribeMessage('reaction.toggle')
+  async toggleReaction(
+    @ConnectedSocket() socket: Socket,
+    @MessageBody() body: RealtimeReactionDto,
+  ) {
+    const principal = this.requirePrincipal(socket);
+    const message = await this.messages.toggleReaction(
+      principal.userId,
+      body.workspaceId,
+      body.conversationId,
+      body.messageId,
+      body.emoji,
+    );
+    await this.broadcastMessageEvent(
+      body.workspaceId,
+      body.conversationId,
+      'message.updated',
+      message,
+    );
+    return { data: message, meta: {} };
+  }
+
+  private async broadcastMessageEvent(
+    workspaceId: string,
+    conversationId: string,
+    event: string,
+    message: unknown,
+  ) {
     const directMessageParticipantIds =
       await this.messages.getDirectMessageParticipantIds(
-        body.workspaceId,
-        body.conversationId,
+        workspaceId,
+        conversationId,
       );
     const rooms = [
-      `conversation:${body.conversationId}`,
+      `conversation:${conversationId}`,
       ...directMessageParticipantIds.map((userId) => `user:${userId}`),
     ];
-    this.server.to(rooms).emit('message.created', {
+    this.server.to(rooms).emit(event, {
       data: message,
       meta: {
         conversationType:
           directMessageParticipantIds.length > 0 ? 'DM' : 'CHANNEL',
       },
     });
-    return { data: message, meta: {} };
   }
 
   @SubscribeMessage('typing.update')
@@ -216,6 +342,101 @@ export class RealtimeGateway
       meta: {},
     });
     return { data: { delivered: true }, meta: {} };
+  }
+
+  @SubscribeMessage('huddle.room.join')
+  async joinHuddleRoom(
+    @ConnectedSocket() socket: Socket,
+    @MessageBody() body: HuddleRoomDto,
+  ) {
+    const principal = this.requirePrincipal(socket);
+    await this.huddles.assertActiveParticipant(principal.userId, body.huddleId);
+    await this.huddles.heartbeatParticipant(principal.userId, body.huddleId);
+    await socket.join(`huddle:${body.huddleId}`);
+    return { data: { joined: true }, meta: {} };
+  }
+
+  @SubscribeMessage('huddle.room.leave')
+  async leaveHuddleRoom(
+    @ConnectedSocket() socket: Socket,
+    @MessageBody() body: HuddleRoomDto,
+  ) {
+    await socket.leave(`huddle:${body.huddleId}`);
+    return { data: { left: true }, meta: {} };
+  }
+
+  @SubscribeMessage('huddle.heartbeat')
+  async huddleHeartbeat(
+    @ConnectedSocket() socket: Socket,
+    @MessageBody() body: HuddleRoomDto,
+  ) {
+    const principal = this.requirePrincipal(socket);
+    const state = await this.huddles.heartbeatParticipant(
+      principal.userId,
+      body.huddleId,
+    );
+    return { data: state, meta: {} };
+  }
+
+  @SubscribeMessage('huddle.participant_state')
+  async updateHuddleParticipant(
+    @ConnectedSocket() socket: Socket,
+    @MessageBody() body: HuddleParticipantStateDto,
+  ) {
+    const principal = this.requirePrincipal(socket);
+    const participant = await this.huddles.updateParticipant(
+      principal.userId,
+      body,
+    );
+    return { data: participant, meta: {} };
+  }
+
+  @SubscribeMessage('huddle.raise_hand')
+  async raiseHuddleHand(
+    @ConnectedSocket() socket: Socket,
+    @MessageBody() body: HuddleRoomDto,
+  ) {
+    const principal = this.requirePrincipal(socket);
+    const participant = await this.huddles.updateParticipant(principal.userId, {
+      ...body,
+      handRaised: true,
+    });
+    this.server.to(`huddle:${body.huddleId}`).emit('huddle.hand_raised', {
+      data: { huddleId: body.huddleId, ...participant },
+      meta: {},
+    });
+    return { data: participant, meta: {} };
+  }
+
+  @SubscribeMessage('huddle.lower_hand')
+  async lowerHuddleHand(
+    @ConnectedSocket() socket: Socket,
+    @MessageBody() body: HuddleRoomDto,
+  ) {
+    const principal = this.requirePrincipal(socket);
+    const participant = await this.huddles.updateParticipant(principal.userId, {
+      ...body,
+      handRaised: false,
+    });
+    this.server.to(`huddle:${body.huddleId}`).emit('huddle.hand_lowered', {
+      data: { huddleId: body.huddleId, ...participant },
+      meta: {},
+    });
+    return { data: participant, meta: {} };
+  }
+
+  @SubscribeMessage('huddle.reaction')
+  async huddleReaction(
+    @ConnectedSocket() socket: Socket,
+    @MessageBody() body: HuddleReactionDto,
+  ) {
+    const principal = this.requirePrincipal(socket);
+    const event = await this.huddles.reaction(
+      principal.userId,
+      body.huddleId,
+      body.emoji,
+    );
+    return { data: event, meta: {} };
   }
 
   private requirePrincipal(socket: Socket): AuthenticatedUser {

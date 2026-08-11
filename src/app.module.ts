@@ -17,6 +17,13 @@ import { RedisModule } from './redis/redis.module';
 import { UsersModule } from './users/users.module';
 import { WorkspacesModule } from './workspaces/workspaces.module';
 import { ApiExceptionFilter } from './common/http/api-exception.filter';
+import { HuddlesModule } from './huddles/huddles.module';
+import { FilesModule } from './files/files.module';
+import { TasksModule } from './tasks/tasks.module';
+import { ProjectActivityModule } from './project-activity/project-activity.module';
+import { ProjectDecisionsModule } from './project-decisions/project-decisions.module';
+import { ProjectsModule } from './projects/projects.module';
+import { SprintsModule } from './sprints/sprints.module';
 
 @Module({
   imports: [
@@ -58,6 +65,13 @@ import { ApiExceptionFilter } from './common/http/api-exception.filter';
     ChannelsModule,
     ConversationsModule,
     MessagesModule,
+    FilesModule,
+    ProjectActivityModule,
+    ProjectsModule,
+    SprintsModule,
+    ProjectDecisionsModule,
+    TasksModule,
+    HuddlesModule,
     RealtimeModule,
   ],
   providers: [

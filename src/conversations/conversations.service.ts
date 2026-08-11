@@ -214,4 +214,69 @@ export class ConversationsService {
       )
       .exec();
   }
+
+  createProjectConversation(
+    workspaceId: string,
+    projectId: string,
+    createdBy: string,
+    memberIds: string[],
+  ) {
+    return this.conversations.findOneAndUpdate(
+      { workspaceId, projectId, type: 'PROJECT' },
+      {
+        $setOnInsert: {
+          workspaceId,
+          projectId,
+          createdBy,
+          memberIds,
+          type: 'PROJECT',
+        },
+      },
+      { upsert: true, new: true },
+    );
+  }
+
+  removeProjectConversation(workspaceId: string, projectId: string) {
+    return this.conversations
+      .deleteOne({ workspaceId, projectId, type: 'PROJECT' })
+      .exec();
+  }
+
+  addProjectMembers(workspaceId: string, projectId: string, userIds: string[]) {
+    return this.conversations
+      .updateOne(
+        { workspaceId, projectId, type: 'PROJECT' },
+        { $addToSet: { memberIds: { $each: userIds } } },
+      )
+      .exec();
+  }
+
+  createTaskConversation(
+    workspaceId: string,
+    projectId: string,
+    taskId: string,
+    createdBy: string,
+    memberIds: string[],
+  ) {
+    return this.conversations.findOneAndUpdate(
+      { workspaceId, taskId, type: 'TASK' },
+      {
+        $setOnInsert: {
+          workspaceId,
+          projectId,
+          taskId,
+          createdBy,
+          memberIds,
+          type: 'TASK',
+        },
+      },
+      { upsert: true, new: true },
+    );
+  }
+
+  findTaskConversation(workspaceId: string, taskId: string) {
+    return this.conversations
+      .findOne({ workspaceId, taskId, type: 'TASK' })
+      .exec();
+  }
 }

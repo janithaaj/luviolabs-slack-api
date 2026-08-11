@@ -2,17 +2,23 @@ import { ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
 import cookieParser from 'cookie-parser';
+import express from 'express';
 import helmet from 'helmet';
 import { Logger } from 'nestjs-pino';
 import { AppModule } from './app.module';
 import { RedisIoAdapter } from './realtime/redis-io.adapter';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule, { bufferLogs: true });
+  const app = await NestFactory.create(AppModule, {
+    bufferLogs: true,
+    bodyParser: false,
+  });
   const config = app.get(ConfigService);
   app.useLogger(app.get(Logger));
   app.use(helmet());
   app.use(cookieParser());
+  app.use(express.json({ limit: '40mb' }));
+  app.use(express.urlencoded({ limit: '40mb', extended: true }));
   app.enableCors({
     origin: config
       .getOrThrow<string>('APP_WEB_URL')
