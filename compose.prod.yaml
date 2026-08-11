@@ -9,10 +9,12 @@ services:
     command: ["redis-server", "--appendonly", "yes"]
     volumes: ["redis_data:/data"]
   api:
-    image: ghcr.io/janithaaj/luviolabs-slack-api:latest
+    image: luvio-api:latest
     restart: unless-stopped
     env_file: .env
-    ports: ["4000:4000"]
+    environment:
+      PORT: "4000"
+    ports: ["4002:4000"]
     depends_on: [mongodb, redis]
 
 volumes:
